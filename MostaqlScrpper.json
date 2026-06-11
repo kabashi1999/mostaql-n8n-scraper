@@ -1,0 +1,366 @@
+{
+  "name": "MostaqlScrpper",
+  "nodes": [
+    {
+      "parameters": {
+        "url": "={{ $json.startUrl }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text",
+              "outputPropertyName": "content"
+            }
+          }
+        }
+      },
+      "id": "cd5952dc-a65c-46ab-9f05-5e654e020e59",
+      "name": "Get Start URL",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        1040,
+        896
+      ],
+      "typeVersion": 4.2
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "fields",
+        "options": {}
+      },
+      "id": "a55f76ea-5325-4b85-9721-40166a61c445",
+      "name": "Split Out Fields",
+      "type": "n8n-nodes-base.splitOut",
+      "position": [
+        1056,
+        704
+      ],
+      "notesInFlow": false,
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineAll",
+        "options": {}
+      },
+      "id": "bf0f5dc2-d4d7-4a5b-8ac1-9d5ce9aa7c57",
+      "name": "Merge HTML and Fields",
+      "type": "n8n-nodes-base.merge",
+      "position": [
+        1344,
+        704
+      ],
+      "typeVersion": 3.2
+    },
+    {
+      "parameters": {
+        "operation": "extractHtmlContent",
+        "dataPropertyName": "content",
+        "extractionValues": {
+          "values": [
+            {
+              "key": "={{ $json.name }}",
+              "cssSelector": "={{ $json.selector }}",
+              "returnValue": "={{ $json.value }}",
+              "returnArray": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "43bdd12f-fb4f-4522-94e1-fb508f31f4df",
+      "name": "Scrape Fields",
+      "type": "n8n-nodes-base.html",
+      "position": [
+        1568,
+        704
+      ],
+      "typeVersion": 1.2
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "fields",
+        "options": {}
+      },
+      "id": "3447e953-e323-4abd-b86d-79fb41a064dc",
+      "name": "Aggregate Fields",
+      "type": "n8n-nodes-base.aggregate",
+      "position": [
+        1808,
+        704
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "={{ $json.fields.map((item, index) => 'fields[' + index + '].' + item.keys()[0]).join() }}",
+        "options": {
+          "destinationFieldName": "={{ $json.fields.map(item => item.keys()[0]).join() }}"
+        }
+      },
+      "id": "62e5c23e-adb2-456f-9817-e15b1454fa46",
+      "name": "Split Out Items",
+      "type": "n8n-nodes-base.splitOut",
+      "position": [
+        2048,
+        704
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "content": "# n8n Workflow: Mostaql Projects Scraper + Telegram Alerts\n\n## Overview\nThis workflow scrapes new freelance projects from **Mostaql.com** every hour, filters them by keywords, and sends nicely formatted notifications to Telegram.\n\n---\n\n## Workflow Structure\n\n```\n1. Cron Trigger (Every Hour)\n        ↓\n2. HTTP Request → Fetch https://mostaql.com/projects\n        ↓\n3. HTML Extract / Edit Fields → Extract Job Data\n        ↓\n4. Code Node (Filter by Keywords) → Optional\n        ↓\n5. Code Node (Format Messages) → Combine + Split long messages\n        ↓\n6. Telegram Node → Send Message(s)\n```\n\n---\n\n## 1. Cron Trigger\n- **Node**: Schedule / Cron\n- **Cron Expression**: `0 * * * *` (every hour)\n- Or use \"Every Hour\" in the friendly interface.\n\n---\n\n## 2. HTTP Request Node\n- **Method**: GET\n- **URL**: `https://mostaql.com/projects`\n- **Headers** (recommended):\n  - `User-Agent`: `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36`\n  - `Accept-Language`: `ar,en-US;q=0.9,en;q=0.8`\n\n---\n\n## 3. HTML Extract / Edit Fields Node\n\n```json\n{\n  \"startUrl\": \"https://mostaql.com/projects\",\n  \"fields\": [\n    {\n      \"name\": \"JobTitle\",\n      \"selector\": \"div.card--title > h2 > a\",\n      \"value\": \"text\"\n    },\n    {\n      \"name\": \"PostTime\",\n      \"selector\": \"div.card--title > ul.project__meta.list-meta-items > li.text-muted > time\",\n      \"value\": \"text\"\n    },\n    {\n      \"name\": \"Link\",\n      \"selector\": \"div.card--title > h2 > a\",\n      \"value\": \"attribute\",\n      \"attribute\": \"href\"\n    }\n  ]\n}\n```\n\n---\n\n## 4. Filter Code Node (Optional)\n\n```javascript\nconst keywords = [\"python\", \"فلاتر\", \"react\", \"django\", \"AI\", \"ذكاء اصطناعي\", \"flutter\"];\n\nconst filtered = items.filter(item => {\n    const title = (item.json.JobTitle || \"\").toLowerCase();\n    const time = (item.json.PostTime || \"\").toLowerCase();\n    \n    return keywords.some(k => \n        title.includes(k.toLowerCase()) || time.includes(k.toLowerCase())\n    );\n});\n\nreturn filtered;\n```\n\n---\n\n## 5. Format Message Code Node (Final Version)\n\n```javascript\nconst MAX_LENGTH = 4000;\nlet messages = [];\nlet currentMessage = `🔔 <b>مشاريع جديدة على مستقل (${items.length})</b>\\n\\n`;\n\nitems.forEach((item, index) => {\n    const job = item.json;\n    \n    let jobText = `<b>${index + 1}. ${job.JobTitle || 'بدون عنوان'}</b>\\n`;\n    \n    if (job.PostTime) jobText += `🕒 ${job.PostTime}\\n`;\n    \n    if (job.Link) {\n        jobText += `🔗 <a href=\"https://mostaql.com${job.Link}\">افتح المشروع</a>\\n`;\n    }\n    \n    jobText += `────────────────────\\n\\n`;\n\n    if ((currentMessage.length + jobText.length) > MAX_LENGTH && currentMessage.length > 100) {\n        messages.push(currentMessage);\n        currentMessage = `🔔 <b>مشاريع جديدة على مستقل (تابع)</b>\\n\\n`;\n    }\n    \n    currentMessage += jobText;\n});\n\nif (currentMessage.length > 100) {\n    messages.push(currentMessage);\n}\n\nreturn messages.map(msg => ({ json: { message: msg } }));\n```\n\n---\n\n## 6. Telegram Node\n- **Operation**: Send Message\n- **Parse Mode**: **HTML** (Very Important!)\n- **Message**: `{{ $json.message }}`\n- **Credential**: Your Telegram Bot\n\n---\n\n## Tips & Improvements\n\n- Add more fields later (Budget, Category, Description)\n- Add keyword filtering\n- Add error handling with \"Error Trigger\" or \"IF\" node\n- Use \"Wait\" node if you want delays between messages\n- Consider adding proxy or rotating User-Agent for heavy usage\n\n---\n\n**Created on:** June 11, 2026  \n**For:** Mostaql.com Scraper Workflow\n\n---\nYou can now import this Markdown file into any note-taking app (Obsidian, Notion, Typora, etc.).\n",
+        "height": 1024,
+        "width": 592
+      },
+      "id": "0f0f0f6b-de41-4f72-86f9-9b365590b388",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -544,
+        160
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "content": "The **Split Out** node separates the configured data fields (e.g., jobtitle, posttime).the code node then shape the fields into a readable message format before passing it to the social media node.",
+        "width": 464,
+        "color": 7
+      },
+      "id": "62821962-2e5d-4689-b19f-60dd313fc469",
+      "name": "Sticky Note1",
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1968,
+        480
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "content": "The **HTML Node** uses the specific CSS selectors from the configuration to pull the required content. The **Aggregate Node** collects all extracted data items from the current page.",
+        "height": 128,
+        "width": 464,
+        "color": 7
+      },
+      "id": "cfd47c50-50e0-4912-a83f-0b75152e17a6",
+      "name": "Sticky Note2",
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1360,
+        496
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "content": "Define the entire job via a single JSON and then fetchs the HTML content from the current **start Url** using the **HTTP Request** node.",
+        "height": 144,
+        "width": 464,
+        "color": 7
+      },
+      "id": "ae2067c9-6e05-461c-afe4-8b98839a0a6b",
+      "name": "Sticky Note3",
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        624,
+        1088
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "{\n  \"startUrl\": \"https://mostaql.com/projects\",\n  \"fields\": [\n    {\n      \"name\": \"JobTitle\",\n      \"selector\": \"div.card--title > h2 > a[href]\",\n      \"value\": \"text\"\n    },\n    {\n      \"name\": \"PostTime\",\n      \"selector\": \"div.card--title > ul.project__meta.list-meta-items > li.text-muted > time > i.fa.fa-clock-o\",\n      \"value\": \"text\"\n    },\n    {\n      \"name\": \"Link\",\n      \"selector\": \"div.card--title > h2 > a[href]\",\n      \"value\": \"attribute\",\n      \"attribute\": \"href\"\n    }\n  ]\n}\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        624,
+        896
+      ],
+      "id": "7dea4f97-d47b-4bc9-9ecb-6ce99c83e3ac",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "chatId": "732467044",
+        "text": "={{ $json.message }}",
+        "additionalFields": {
+          "parse_mode": "HTML"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2608,
+        704
+      ],
+      "id": "e093d052-9f70-4b0d-ab50-0e7fae05ff56",
+      "name": "Send a text message",
+      "webhookId": "d6c6ff57-cf79-4040-9afb-2d72f8be5229",
+      "credentials": {
+        "telegramApi": {
+          "id": "BfMeNuHQZNwd1Brs",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Split long messages for Telegram (4096 char limit)\nconst MAX_LENGTH = 4000;\nlet messages = [];\nlet currentMessage = `🔔 <b>مشاريع جديدة على مستقل (${items.length})</b>\\n\\n`;\n\nitems.forEach((item, index) => {\n    const job = item.json;\n    \n    let jobText = `<b>${index + 1}. ${job.JobTitle || 'بدون عنوان'}</b>\\n`;\n    \n    if (job.PostTime) jobText += `🕒 ${job.PostTime}\\n`;\n    \n    if (job.Link) {\n        jobText += `🔗 <a href=\"${job.Link.href}\">افتح المشروع</a>\\n`;\n    }\n    \n    jobText += `────────────────────\\n\\n`;\n\n    // Check if adding this job will exceed limit\n    if ((currentMessage.length + jobText.length) > MAX_LENGTH && currentMessage.length > 100) {\n        messages.push(currentMessage);\n        currentMessage = `🔔 <b>مشاريع جديدة على مستقل (تابع)</b>\\n\\n`;\n    }\n    \n    currentMessage += jobText;\n});\n\n// Add the last message\nif (currentMessage.length > 100) {\n    messages.push(currentMessage);\n}\n\n// Return all messages as separate items\nreturn messages.map(msg => ({\n    json: { message: msg }\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2304,
+        704
+      ],
+      "id": "5749a060-0a1f-418b-a79f-84d35657089a",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        336,
+        896
+      ],
+      "id": "77e998af-5ae3-4d04-918c-6002834533bb",
+      "name": "Schedule Trigger"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Get Start URL": {
+      "main": [
+        [
+          {
+            "node": "Merge HTML and Fields",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Scrape Fields": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out Items": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Fields": {
+      "main": [
+        [
+          {
+            "node": "Split Out Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out Fields": {
+      "main": [
+        [
+          {
+            "node": "Merge HTML and Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge HTML and Fields": {
+      "main": [
+        [
+          {
+            "node": "Scrape Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Split Out Fields",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Get Start URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Send a text message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "c775192f-3c63-498c-a8a6-06698aecc5fe",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "937b3486abdd56a421594755cdc5d90fe6acf9b32db712eb43a0f8554c992037"
+  },
+  "nodeGroups": [],
+  "id": "w45TwxEV1W19b8jC",
+  "tags": []
+}
